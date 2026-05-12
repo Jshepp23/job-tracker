@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin
+from app.schemas.user import UserCreate
 
 from app.auth.password_handler import (
     hash_password,
@@ -13,10 +14,16 @@ from app.auth.password_handler import (
 from app.auth.auth_handler import (
     create_access_token
 )
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
 
 router = APIRouter(
     prefix="/auth",
     tags=["Auth"]
+)
+limiter = Limiter(
+    key_func=get_remote_address
 )
 
 def get_db():
@@ -59,13 +66,15 @@ def register_user(
     }
 
 @router.post("/login")
+@limiter.limit("5/minute")
 def login_user(
-    user: UserLogin,
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
 
     db_user = db.query(User).filter(
-        User.email == user.email
+        User.email == form_data.username
     ).first()
 
     if not db_user:
@@ -75,7 +84,7 @@ def login_user(
         )
 
     if not verify_password(
-        user.password,
+        form_data.password,
         db_user.hashed_password
     ):
         raise HTTPException(
